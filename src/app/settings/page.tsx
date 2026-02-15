@@ -1,15 +1,31 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   getProfile,
   saveProfile,
-  getApiKey,
-  saveApiKey,
+  getAISettings,
+  saveAISettings,
 } from "@/lib/storage";
-import { ActivityLevel, Sex, UserProfile } from "@/lib/types";
+import { ActivityLevel, AIProvider, KeySource, Sex, UserProfile } from "@/lib/types";
 import { calculateTDEE, formatNumber } from "@/lib/utils";
-import { Save, Calculator, Key, Eye, EyeOff } from "lucide-react";
+import {
+  Save,
+  Calculator,
+  Key,
+  Eye,
+  EyeOff,
+  Cpu,
+  RefreshCw,
+  Loader2,
+  Server,
+  Monitor,
+} from "lucide-react";
+
+interface ModelOption {
+  id: string;
+  name: string;
+}
 
 const activityLabels: Record<ActivityLevel, string> = {
   sedentary: "Sedentary (little or no exercise)",
@@ -20,6 +36,7 @@ const activityLabels: Record<ActivityLevel, string> = {
 };
 
 export default function SettingsPage() {
+  const [mounted, setMounted] = useState(false);
   const [sex, setSex] = useState<Sex>("male");
   const [age, setAge] = useState("");
   const [weight, setWeight] = useState("");
@@ -27,8 +44,24 @@ export default function SettingsPage() {
   const [activityLevel, setActivityLevel] =
     useState<ActivityLevel>("moderate");
   const [goalCalories, setGoalCalories] = useState("");
-  const [apiKey, setApiKeyState] = useState("");
+
+  // AI settings
+  const [provider, setProvider] = useState<AIProvider>("openai");
+  const [model, setModel] = useState("gpt-4o");
+  const [keySource, setKeySource] = useState<KeySource>("local");
+  const [localApiKey, setLocalApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
+
+  // Server config
+  const [hasServerKey, setHasServerKey] = useState(false);
+  const [serverProvider, setServerProvider] = useState<string | null>(null);
+  const [serverModel, setServerModel] = useState<string | null>(null);
+
+  // Models list
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<string | null>(null);
+
   const [saved, setSaved] = useState(false);
   const [tdee, setTdee] = useState<number | null>(null);
 
@@ -44,7 +77,24 @@ export default function SettingsPage() {
         setGoalCalories(String(profile.goalCalories));
       }
     }
-    setApiKeyState(getApiKey());
+
+    const ai = getAISettings();
+    setProvider(ai.provider);
+    setModel(ai.model);
+    setKeySource(ai.keySource);
+    setLocalApiKey(ai.localApiKey);
+
+    // Fetch server config
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((cfg) => {
+        setHasServerKey(cfg.hasServerKey);
+        setServerProvider(cfg.serverProvider);
+        setServerModel(cfg.serverModel);
+      })
+      .catch(() => {});
+
+    setMounted(true);
   }, []);
 
   useEffect(() => {
@@ -62,6 +112,31 @@ export default function SettingsPage() {
     }
   }, [sex, age, weight, height, activityLevel]);
 
+  const fetchModels = useCallback(async () => {
+    setModelsLoading(true);
+    setModelsError(null);
+    try {
+      const useServer = keySource === "server";
+      const params = new URLSearchParams({
+        provider,
+        useServerKey: String(useServer),
+      });
+      if (!useServer && localApiKey) {
+        params.set("apiKey", localApiKey);
+      }
+      const res = await fetch(`/api/models?${params}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to fetch models");
+      setModels(data.models || []);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch models";
+      setModelsError(msg);
+      setModels([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [provider, keySource, localApiKey]);
+
   const handleSave = () => {
     const profile: UserProfile = {
       sex,
@@ -72,7 +147,7 @@ export default function SettingsPage() {
       goalCalories: goalCalories ? Number(goalCalories) : undefined,
     };
     saveProfile(profile);
-    saveApiKey(apiKey);
+    saveAISettings({ provider, model, keySource, localApiKey });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -83,38 +158,164 @@ export default function SettingsPage() {
     }
   };
 
+  if (!mounted) return null;
+
   return (
     <div className="px-4 pt-6 pb-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
 
-      {/* API Key Section */}
+      {/* AI Provider Section */}
       <section className="mb-8">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-3">
-          <Key className="h-5 w-5 text-green-600" />
-          OpenAI API Key
+          <Cpu className="h-5 w-5 text-green-600" />
+          AI Provider
         </h2>
         <p className="text-sm text-gray-500 mb-3">
-          Required for food recognition. Your key is stored locally and never
-          sent to our servers.
+          Choose between OpenAI and OpenRouter for food recognition.
         </p>
-        <div className="relative">
-          <input
-            type={showApiKey ? "text" : "password"}
-            value={apiKey}
-            onChange={(e) => setApiKeyState(e.target.value)}
-            placeholder="sk-..."
-            className="w-full rounded-xl border border-gray-300 px-4 py-3 pr-12 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20"
-          />
-          <button
-            onClick={() => setShowApiKey(!showApiKey)}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-          >
-            {showApiKey ? (
-              <EyeOff className="h-4 w-4" />
-            ) : (
-              <Eye className="h-4 w-4" />
+        <div className="flex gap-2 mb-4">
+          {(["openai", "openrouter"] as AIProvider[]).map((p) => (
+            <button
+              key={p}
+              onClick={() => {
+                setProvider(p);
+                setModels([]);
+                setModel(p === "openai" ? "gpt-4o" : "");
+              }}
+              className={`flex-1 rounded-xl py-2.5 text-sm font-medium transition-colors ${
+                provider === p
+                  ? "bg-green-600 text-white shadow-md"
+                  : "border-2 border-gray-200 text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              {p === "openai" ? "OpenAI" : "OpenRouter"}
+            </button>
+          ))}
+        </div>
+
+        {/* Key Source */}
+        {hasServerKey && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              API Key Source
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setKeySource("server")}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-medium transition-colors ${
+                  keySource === "server"
+                    ? "bg-blue-600 text-white shadow-md"
+                    : "border-2 border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Server className="h-4 w-4" />
+                Server Key
+              </button>
+              <button
+                onClick={() => setKeySource("local")}
+                className={`flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-medium transition-colors ${
+                  keySource === "local"
+                    ? "bg-blue-600 text-white shadow-md"
+                    : "border-2 border-gray-200 text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Monitor className="h-4 w-4" />
+                My Key
+              </button>
+            </div>
+            {keySource === "server" && serverProvider && (
+              <p className="mt-2 text-xs text-blue-600">
+                Server is configured with {serverProvider}
+                {serverModel ? ` (${serverModel})` : ""}
+              </p>
             )}
-          </button>
+          </div>
+        )}
+
+        {/* Local API Key Input */}
+        {keySource === "local" && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <Key className="inline h-4 w-4 mr-1" />
+              API Key
+            </label>
+            <p className="text-xs text-gray-400 mb-2">
+              Your key is stored locally in the browser only.
+            </p>
+            <div className="relative">
+              <input
+                type={showApiKey ? "text" : "password"}
+                value={localApiKey}
+                onChange={(e) => setLocalApiKey(e.target.value)}
+                placeholder={
+                  provider === "openai" ? "sk-..." : "sk-or-..."
+                }
+                className="w-full rounded-xl border border-gray-300 px-4 py-3 pr-12 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20"
+              />
+              <button
+                onClick={() => setShowApiKey(!showApiKey)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                {showApiKey ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Model Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Model
+          </label>
+          <div className="flex gap-2">
+            <div className="flex-1 relative">
+              {models.length > 0 ? (
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 bg-white"
+                >
+                  <option value="">Select a model...</option>
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={
+                    provider === "openai"
+                      ? "gpt-4o"
+                      : "google/gemini-2.0-flash-001"
+                  }
+                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20"
+                />
+              )}
+            </div>
+            <button
+              onClick={fetchModels}
+              disabled={modelsLoading}
+              className="flex items-center justify-center gap-1.5 rounded-xl border-2 border-gray-200 px-4 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
+              title="Fetch available models"
+            >
+              {modelsLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </button>
+          </div>
+          {modelsError && (
+            <p className="mt-1.5 text-xs text-red-500">{modelsError}</p>
+          )}
         </div>
       </section>
 

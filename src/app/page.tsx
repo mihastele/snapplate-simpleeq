@@ -11,12 +11,14 @@ import Link from "next/link";
 import { Camera, Settings } from "lucide-react";
 
 export default function HomePage() {
+  const [mounted, setMounted] = useState(false);
   const [log, setLog] = useState<DailyLog>({ date: getTodayKey(), meals: [] });
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
     setLog(getDailyLog());
     setProfile(getProfile());
+    setMounted(true);
   }, []);
 
   const goalCalories = profile
@@ -32,6 +34,8 @@ export default function HomePage() {
     deleteMealEntry(id);
     setLog(getDailyLog());
   };
+
+  if (!mounted) return null;
 
   return (
     <div className="px-4 pt-6">

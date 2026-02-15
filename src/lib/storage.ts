@@ -1,12 +1,12 @@
 "use client";
 
-import { DailyLog, MealEntry, UserProfile } from "./types";
+import { AISettings, DailyLog, MealEntry, UserProfile } from "./types";
 import { getTodayKey } from "./utils";
 
 const STORAGE_KEYS = {
   PROFILE: "snapplate_profile",
   LOGS: "snapplate_logs",
-  API_KEY: "snapplate_api_key",
+  AI_SETTINGS: "snapplate_ai_settings",
 };
 
 export function getProfile(): UserProfile | null {
@@ -19,13 +19,26 @@ export function saveProfile(profile: UserProfile): void {
   localStorage.setItem(STORAGE_KEYS.PROFILE, JSON.stringify(profile));
 }
 
-export function getApiKey(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(STORAGE_KEYS.API_KEY) || "";
+const DEFAULT_AI_SETTINGS: AISettings = {
+  provider: "openai",
+  model: "gpt-4o",
+  keySource: "local",
+  localApiKey: "",
+};
+
+export function getAISettings(): AISettings {
+  if (typeof window === "undefined") return DEFAULT_AI_SETTINGS;
+  const raw = localStorage.getItem(STORAGE_KEYS.AI_SETTINGS);
+  if (!raw) return DEFAULT_AI_SETTINGS;
+  try {
+    return { ...DEFAULT_AI_SETTINGS, ...JSON.parse(raw) };
+  } catch {
+    return DEFAULT_AI_SETTINGS;
+  }
 }
 
-export function saveApiKey(key: string): void {
-  localStorage.setItem(STORAGE_KEYS.API_KEY, key);
+export function saveAISettings(settings: AISettings): void {
+  localStorage.setItem(STORAGE_KEYS.AI_SETTINGS, JSON.stringify(settings));
 }
 
 function getAllLogs(): Record<string, DailyLog> {

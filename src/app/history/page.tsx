@@ -8,6 +8,7 @@ import MealCard from "@/components/MealCard";
 import { Calendar } from "lucide-react";
 
 export default function HistoryPage() {
+  const [mounted, setMounted] = useState(false);
   const [dates, setDates] = useState<string[]>([]);
   const [logs, setLogs] = useState<Record<string, DailyLog>>({});
 
@@ -23,6 +24,7 @@ export default function HistoryPage() {
 
   useEffect(() => {
     loadData();
+    setMounted(true);
   }, []);
 
   const handleDelete = (id: string, date: string) => {
@@ -45,6 +47,8 @@ export default function HistoryPage() {
       day: "numeric",
     });
   };
+
+  if (!mounted) return null;
 
   return (
     <div className="px-4 pt-6">

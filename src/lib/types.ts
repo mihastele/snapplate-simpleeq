@@ -39,3 +39,13 @@ export interface DailyLog {
   date: string; // YYYY-MM-DD
   meals: MealEntry[];
 }
+
+export type AIProvider = "openai" | "openrouter";
+export type KeySource = "local" | "server";
+
+export interface AISettings {
+  provider: AIProvider;
+  model: string;
+  keySource: KeySource;
+  localApiKey: string;
+}

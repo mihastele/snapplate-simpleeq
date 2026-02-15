@@ -2,7 +2,7 @@
 
 import { useRef, useState, useCallback } from "react";
 import { Camera, Upload, Loader2, Check, RotateCcw } from "lucide-react";
-import { getApiKey, addMealEntry } from "@/lib/storage";
+import { getAISettings, addMealEntry } from "@/lib/storage";
 import { FoodItem, MealEntry } from "@/lib/types";
 import { v4 as uuidv4 } from "uuid";
 import { useRouter } from "next/navigation";
@@ -80,9 +80,11 @@ export default function ScanPage() {
     setStep("analyzing");
     setError(null);
 
-    const apiKey = getApiKey();
-    if (!apiKey) {
-      setError("Please add your OpenAI API key in Settings first.");
+    const aiSettings = getAISettings();
+    const useServerKey = aiSettings.keySource === "server";
+
+    if (!useServerKey && !aiSettings.localApiKey) {
+      setError("Please add your API key in Settings first.");
       setStep("capture");
       return;
     }
@@ -91,7 +93,13 @@ export default function ScanPage() {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: dataUrl, apiKey }),
+        body: JSON.stringify({
+          imageBase64: dataUrl,
+          apiKey: useServerKey ? undefined : aiSettings.localApiKey,
+          provider: aiSettings.provider,
+          model: aiSettings.model,
+          useServerKey,
+        }),
       });
 
       const data = await res.json();
