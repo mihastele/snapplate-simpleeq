@@ -50,12 +50,14 @@ export default function SettingsPage() {
   const [model, setModel] = useState("gpt-4o");
   const [keySource, setKeySource] = useState<KeySource>("local");
   const [localApiKey, setLocalApiKey] = useState("");
+  const [customApiUrl, setCustomApiUrl] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
 
   // Server config
   const [hasServerKey, setHasServerKey] = useState(false);
   const [serverProvider, setServerProvider] = useState<string | null>(null);
   const [serverModel, setServerModel] = useState<string | null>(null);
+  const [serverCustomApiUrl, setServerCustomApiUrl] = useState<string | null>(null);
 
   // Models list
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -63,6 +65,7 @@ export default function SettingsPage() {
   const [modelsError, setModelsError] = useState<string | null>(null);
 
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [tdee, setTdee] = useState<number | null>(null);
 
   useEffect(() => {
@@ -83,6 +86,7 @@ export default function SettingsPage() {
     setModel(ai.model);
     setKeySource(ai.keySource);
     setLocalApiKey(ai.localApiKey);
+    setCustomApiUrl(ai.customApiUrl);
 
     // Fetch server config
     fetch("/api/config")
@@ -91,6 +95,7 @@ export default function SettingsPage() {
         setHasServerKey(cfg.hasServerKey);
         setServerProvider(cfg.serverProvider);
         setServerModel(cfg.serverModel);
+        setServerCustomApiUrl(cfg.serverCustomApiUrl);
       })
       .catch(() => {});
 
@@ -124,6 +129,9 @@ export default function SettingsPage() {
       if (!useServer && localApiKey) {
         params.set("apiKey", localApiKey);
       }
+      if (!useServer && provider === "custom" && customApiUrl) {
+        params.set("customApiUrl", customApiUrl);
+      }
       const res = await fetch(`/api/models?${params}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch models");
@@ -135,9 +143,17 @@ export default function SettingsPage() {
     } finally {
       setModelsLoading(false);
     }
-  }, [provider, keySource, localApiKey]);
+  }, [provider, keySource, localApiKey, customApiUrl]);
 
   const handleSave = () => {
+    setError(null);
+    
+    // Validate custom API URL for custom provider with local key
+    if (provider === "custom" && keySource === "local" && !customApiUrl.trim()) {
+      setError("Custom API URL is required when using Custom provider with local key.");
+      return;
+    }
+
     const profile: UserProfile = {
       sex,
       age: Number(age),
@@ -147,7 +163,10 @@ export default function SettingsPage() {
       goalCalories: goalCalories ? Number(goalCalories) : undefined,
     };
     saveProfile(profile);
-    saveAISettings({ provider, model, keySource, localApiKey });
+    
+    const aiSettings = { provider, model, keySource, localApiKey, customApiUrl };
+    console.log("Debug - Saving AI Settings:", aiSettings);
+    saveAISettings(aiSettings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -164,6 +183,12 @@ export default function SettingsPage() {
     <div className="px-4 pt-6 pb-8">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Settings</h1>
 
+      {error && (
+        <div className="mb-4 rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       {/* AI Provider Section */}
       <section className="mb-8">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-3">
@@ -171,27 +196,64 @@ export default function SettingsPage() {
           AI Provider
         </h2>
         <p className="text-sm text-gray-500 mb-3">
-          Choose between OpenAI and OpenRouter for food recognition.
+          Choose between OpenAI, OpenRouter, or a custom OpenAI-compatible API for food recognition.
         </p>
         <div className="flex gap-2 mb-4">
-          {(["openai", "openrouter"] as AIProvider[]).map((p) => (
+          {(["openai", "openrouter", "custom"] as AIProvider[]).map((p) => (
             <button
               key={p}
               onClick={() => {
-                setProvider(p);
-                setModels([]);
-                setModel(p === "openai" ? "gpt-4o" : "");
+                if (keySource !== "server") {
+                  setProvider(p);
+                  setModels([]);
+                  setModel(p === "openai" ? "gpt-4o" : "");
+                }
               }}
+              disabled={keySource === "server"}
               className={`flex-1 rounded-xl py-2.5 text-sm font-medium transition-colors ${
                 provider === p
-                  ? "bg-green-600 text-white shadow-md"
+                  ? keySource === "server"
+                    ? "bg-gray-300 text-gray-500"
+                    : "bg-green-600 text-white shadow-md"
+                  : keySource === "server"
+                  ? "border-2 border-gray-200 text-gray-300 cursor-not-allowed"
                   : "border-2 border-gray-200 text-gray-600 hover:bg-gray-50"
               }`}
             >
-              {p === "openai" ? "OpenAI" : "OpenRouter"}
+              {p === "openai" ? "OpenAI" : p === "openrouter" ? "OpenRouter" : "Custom"}
             </button>
           ))}
         </div>
+        {keySource === "server" && (
+          <p className="text-xs text-gray-500">
+            AI provider is managed by server configuration
+          </p>
+        )}
+
+        {/* Custom API URL */}
+        {provider === "custom" && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Custom API URL
+            </label>
+            <p className="text-xs text-gray-400 mb-2">
+              OpenAI-compatible API endpoint (e.g. https://api.example.com/v1)
+            </p>
+            <input
+              type="url"
+              value={keySource === "server" && serverCustomApiUrl ? serverCustomApiUrl : customApiUrl}
+              onChange={(e) => setCustomApiUrl(e.target.value)}
+              disabled={keySource === "server"}
+              placeholder="https://api.example.com/v1"
+              className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 disabled:bg-gray-50 disabled:text-gray-400"
+            />
+            {keySource === "server" && (
+              <p className="mt-1.5 text-xs text-gray-500">
+                Custom URL is configured on the server
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Key Source */}
         {hasServerKey && (
@@ -227,6 +289,7 @@ export default function SettingsPage() {
               <p className="mt-2 text-xs text-blue-600">
                 Server is configured with {serverProvider}
                 {serverModel ? ` (${serverModel})` : ""}
+                {serverProvider === "custom" && serverCustomApiUrl ? ` at ${serverCustomApiUrl}` : ""}
               </p>
             )}
           </div>
@@ -248,7 +311,11 @@ export default function SettingsPage() {
                 value={localApiKey}
                 onChange={(e) => setLocalApiKey(e.target.value)}
                 placeholder={
-                  provider === "openai" ? "sk-..." : "sk-or-..."
+                  provider === "openai" 
+                    ? "sk-..." 
+                    : provider === "openrouter"
+                    ? "sk-or-..."
+                    : "your-api-key"
                 }
                 className="w-full rounded-xl border border-gray-300 px-4 py-3 pr-12 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20"
               />
@@ -277,7 +344,10 @@ export default function SettingsPage() {
                 <select
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 bg-white"
+                  disabled={keySource === "server"}
+                  className={`w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 bg-white ${
+                    keySource === "server" ? "bg-gray-50 text-gray-400" : ""
+                  }`}
                 >
                   <option value="">Select a model...</option>
                   {models.map((m) => (
@@ -291,18 +361,23 @@ export default function SettingsPage() {
                   type="text"
                   value={model}
                   onChange={(e) => setModel(e.target.value)}
+                  disabled={keySource === "server"}
                   placeholder={
                     provider === "openai"
                       ? "gpt-4o"
-                      : "google/gemini-2.0-flash-001"
+                      : provider === "openrouter"
+                      ? "google/gemini-2.0-flash-001"
+                      : "your-model-name"
                   }
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20"
+                  className={`w-full rounded-xl border border-gray-300 px-4 py-3 text-sm focus:border-green-500 focus:outline-none focus:ring-2 focus:ring-green-500/20 ${
+                    keySource === "server" ? "bg-gray-50 text-gray-400" : ""
+                  }`}
                 />
               )}
             </div>
             <button
               onClick={fetchModels}
-              disabled={modelsLoading}
+              disabled={modelsLoading || keySource === "server"}
               className="flex items-center justify-center gap-1.5 rounded-xl border-2 border-gray-200 px-4 py-3 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50"
               title="Fetch available models"
             >
@@ -315,6 +390,11 @@ export default function SettingsPage() {
           </div>
           {modelsError && (
             <p className="mt-1.5 text-xs text-red-500">{modelsError}</p>
+          )}
+          {keySource === "server" && (
+            <p className="mt-1.5 text-xs text-gray-500">
+              Model is managed by server configuration
+            </p>
           )}
         </div>
       </section>

@@ -40,7 +40,7 @@ export interface DailyLog {
   meals: MealEntry[];
 }
 
-export type AIProvider = "openai" | "openrouter";
+export type AIProvider = "openai" | "openrouter" | "custom";
 export type KeySource = "local" | "server";
 
 export interface AISettings {
@@ -48,4 +48,5 @@ export interface AISettings {
   model: string;
   keySource: KeySource;
   localApiKey: string;
+  customApiUrl: string;
 }

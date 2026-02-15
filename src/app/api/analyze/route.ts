@@ -24,20 +24,48 @@ IMPORTANT: Respond ONLY with valid JSON in this exact format, no markdown, no ex
   ]
 }`;
 
-function getBaseUrl(provider: string): string {
+function getBaseUrl(provider: string, customApiUrl?: string): string {
   if (provider === "openrouter") return "https://openrouter.ai/api/v1";
+  if (provider === "custom") {
+    if (!customApiUrl) {
+      throw new Error("Custom API URL is required for Custom provider");
+    }
+    return customApiUrl;
+  }
   return "https://api.openai.com/v1";
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { imageBase64, apiKey, provider, model, useServerKey } = await req.json();
+    const { imageBase64, apiKey, provider, model, customApiUrl, useServerKey } = await req.json();
 
     // Resolve the API key
     const resolvedKey = useServerKey ? (process.env.AI_API_KEY || "") : (apiKey || "");
-    const resolvedProvider = useServerKey && !provider
-      ? (process.env.AI_PROVIDER || "openai")
-      : (provider || "openai");
+    
+    // Resolve provider and custom URL
+    let resolvedProvider: string;
+    let resolvedCustomUrl: string;
+    
+    if (useServerKey) {
+      // Use server configuration
+      const serverCustomUrl = process.env.AI_CUSTOM_API_URL || "";
+      const serverProvider = process.env.AI_PROVIDER || "openai";
+      
+      if (serverCustomUrl) {
+        // If custom URL is configured, use custom provider
+        resolvedProvider = "custom";
+        resolvedCustomUrl = serverCustomUrl;
+      } else {
+        // Otherwise use the configured provider
+        resolvedProvider = serverProvider;
+        resolvedCustomUrl = "";
+      }
+    } else {
+      // Use client configuration
+      resolvedProvider = provider || "openai";
+      resolvedCustomUrl = customApiUrl || "";
+    }
+    
     const resolvedModel = model
       || (useServerKey ? process.env.AI_MODEL : null)
       || "gpt-4o";
@@ -56,7 +84,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const baseUrl = getBaseUrl(resolvedProvider);
+    // Validate custom API URL for custom provider
+    if (resolvedProvider === "custom" && !resolvedCustomUrl) {
+      return NextResponse.json(
+        { error: "Custom API URL is required when using Custom provider. Configure it in Settings or server .env." },
+        { status: 400 }
+      );
+    }
+
+    const baseUrl = getBaseUrl(resolvedProvider, resolvedCustomUrl);
+
+    console.log("Debug - API Call:", {
+      resolvedProvider,
+      resolvedCustomUrl,
+      baseUrl,
+      resolvedModel,
+      useServerKey
+    });
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",

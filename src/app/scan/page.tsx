@@ -90,16 +90,21 @@ export default function ScanPage() {
     }
 
     try {
+      const requestBody = {
+        imageBase64: dataUrl,
+        apiKey: useServerKey ? undefined : aiSettings.localApiKey,
+        provider: aiSettings.provider,
+        model: aiSettings.model,
+        customApiUrl: useServerKey ? undefined : aiSettings.customApiUrl,
+        useServerKey,
+      };
+      
+      console.log("Debug - Sending to analyze API:", requestBody);
+
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: dataUrl,
-          apiKey: useServerKey ? undefined : aiSettings.localApiKey,
-          provider: aiSettings.provider,
-          model: aiSettings.model,
-          useServerKey,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await res.json();

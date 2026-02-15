@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export async function GET(req: NextRequest) {
   const provider = req.nextUrl.searchParams.get("provider");
   const apiKey = req.nextUrl.searchParams.get("apiKey");
+  const customApiUrl = req.nextUrl.searchParams.get("customApiUrl");
   const useServerKey = req.nextUrl.searchParams.get("useServerKey") === "true";
 
   const key = useServerKey ? (process.env.AI_API_KEY || "") : (apiKey || "");
@@ -18,7 +19,43 @@ export async function GET(req: NextRequest) {
     if (provider === "openrouter") {
       return await fetchOpenRouterModels(key);
     } else {
-      return await fetchOpenAIModels(key);
+      // Handle custom provider detection
+      let resolvedProvider: string;
+      let resolvedCustomUrl: string;
+      
+      if (useServerKey) {
+        // Use server configuration
+        const serverCustomUrl = process.env.AI_CUSTOM_API_URL || "";
+        const serverProvider = process.env.AI_PROVIDER || "openai";
+        
+        if (serverCustomUrl) {
+          // If custom URL is configured, use custom provider
+          resolvedProvider = "custom";
+          resolvedCustomUrl = serverCustomUrl;
+        } else {
+          // Otherwise use the configured provider
+          resolvedProvider = serverProvider;
+          resolvedCustomUrl = "";
+        }
+      } else {
+        // Use client configuration
+        resolvedProvider = provider || "openai";
+        resolvedCustomUrl = customApiUrl || "";
+      }
+      
+      if (resolvedProvider === "custom") {
+        if (!resolvedCustomUrl) {
+          return NextResponse.json(
+            { error: "Custom API URL is required when using Custom provider. Configure it in Settings or server .env." },
+            { status: 400 }
+          );
+        }
+        return await fetchOpenAIModels(key, resolvedCustomUrl);
+      } else if (resolvedProvider === "openrouter") {
+        return await fetchOpenRouterModels(key);
+      } else {
+        return await fetchOpenAIModels(key);
+      }
     }
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Failed to fetch models";
@@ -26,8 +63,8 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function fetchOpenAIModels(apiKey: string) {
-  const res = await fetch("https://api.openai.com/v1/models", {
+async function fetchOpenAIModels(apiKey: string, baseUrl: string = "https://api.openai.com/v1") {
+  const res = await fetch(`${baseUrl}/models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
 

@@ -24,6 +24,7 @@ const DEFAULT_AI_SETTINGS: AISettings = {
   model: "gpt-4o",
   keySource: "local",
   localApiKey: "",
+  customApiUrl: "",
 };
 
 export function getAISettings(): AISettings {
