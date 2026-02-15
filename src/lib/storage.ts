@@ -54,7 +54,7 @@ function saveAllLogs(logs: Record<string, DailyLog>): void {
     
     // Check if we're approaching storage limits
     const estimatedSize = new Blob([jsonString]).size;
-    const quotaLimit = 4 * 1024 * 1024; // 4MB limit to be safe
+    const quotaLimit = 2 * 1024 * 1024; // 2MB limit since we don't store images
     
     if (estimatedSize > quotaLimit) {
       console.log("Storage quota exceeded, cleaning up old logs...");
@@ -86,14 +86,6 @@ function cleanupOldLogs(logs: Record<string, DailyLog>): void {
     }
   }
   
-  // Also remove image data from older entries to save space
-  for (const date in cleanedLogs) {
-    cleanedLogs[date].meals = cleanedLogs[date].meals.map(meal => ({
-      ...meal,
-      imageDataUrl: meal.imageDataUrl ? meal.imageDataUrl.substring(0, 100) + '...truncated...' : undefined
-    }));
-  }
-  
   try {
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(cleanedLogs));
     console.log(`Cleaned up logs, kept ${Object.keys(cleanedLogs).length} days`);
@@ -106,7 +98,7 @@ function cleanupOldLogs(logs: Record<string, DailyLog>): void {
 
 function emergencyCleanup(): void {
   try {
-    // Keep only last 7 days and remove all images
+    // Keep only last 7 days
     const logs = getAllLogs();
     const dates = Object.keys(logs).sort();
     const cutoffDate = dates[Math.max(0, dates.length - 7)];
@@ -114,18 +106,12 @@ function emergencyCleanup(): void {
     const emergencyLogs: Record<string, DailyLog> = {};
     for (const date of dates) {
       if (date >= cutoffDate) {
-        emergencyLogs[date] = {
-          ...logs[date],
-          meals: logs[date].meals.map(meal => ({
-            ...meal,
-            imageDataUrl: undefined // Remove all images
-          }))
-        };
+        emergencyLogs[date] = logs[date];
       }
     }
     
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(emergencyLogs));
-    console.log("Emergency cleanup completed - removed all images, kept 7 days");
+    console.log("Emergency cleanup completed - kept 7 days");
   } catch (error) {
     console.error("Emergency cleanup failed:", error);
     // Last resort: clear all logs
@@ -150,7 +136,14 @@ export function addMealEntry(entry: MealEntry, date?: string): void {
   if (!logs[key]) {
     logs[key] = { date: key, meals: [] };
   }
-  logs[key].meals.push(entry);
+  
+  // Store entry without image data to save space
+  const entryWithoutImage: MealEntry = {
+    ...entry,
+    imageDataUrl: undefined // Remove image data
+  };
+  
+  logs[key].meals.push(entryWithoutImage);
   saveAllLogs(logs);
 }
 

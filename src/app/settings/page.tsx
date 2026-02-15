@@ -183,7 +183,7 @@ export default function SettingsPage() {
   };
 
   const handleClearLogs = () => {
-    if (confirm("This will remove all food logs except the last 30 days. Images will be truncated to save space. Continue?")) {
+    if (confirm("This will remove all food logs except the last 30 days. Images are not stored to save space. Continue?")) {
       clearOldLogs(30);
       setStorageUsage(getStorageUsage());
     }
@@ -424,7 +424,7 @@ export default function SettingsPage() {
           Storage Management
         </h2>
         <p className="text-sm text-gray-500 mb-3">
-          Manage local storage usage and clear old food logs.
+          Manage local storage usage. Images are not stored to save space - only nutritional data is saved.
         </p>
         
         <div className="mb-4">

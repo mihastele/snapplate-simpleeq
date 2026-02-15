@@ -76,7 +76,7 @@ AI_PROVIDER=custom
 AI_API_KEY=your-aimlapi-key
 
 # Model to use (e.g. gpt-4o, google/gemini-2.0-flash-001, etc.)
-AI_MODEL=google/gemini-2.5-flash
+AI_MODEL=alibaba/qwen3-vl-32b-instruct
 
 # Custom OpenAI-compatible API URL (only used when AI_PROVIDER=custom)
 # Default: https://api.openai.com/v1
