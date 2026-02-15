@@ -51,6 +51,12 @@ export async function POST(req: NextRequest) {
       const serverCustomUrl = process.env.AI_CUSTOM_API_URL || "";
       const serverProvider = process.env.AI_PROVIDER || "openai";
       
+      console.log("Debug - Server Config:", {
+        serverCustomUrl,
+        serverProvider,
+        hasCustomUrl: !!serverCustomUrl
+      });
+      
       if (serverCustomUrl) {
         // If custom URL is configured, use custom provider
         resolvedProvider = "custom";
@@ -112,10 +118,46 @@ export async function POST(req: NextRequest) {
       headers["X-Title"] = "Snapplate";
     }
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
+    let requestBody;
+
+    // GLM models often need different payload format
+    if (resolvedModel.includes('glm')) {
+      // Try multiple payload formats for GLM
+      const base64Image = imageBase64.startsWith("data:")
+        ? imageBase64.replace(/^data:image\/\w+;base64,/, "")
+        : imageBase64;
+
+      requestBody = {
+        model: resolvedModel,
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Analyze this food image. Identify every food item and estimate its nutritional values. Return JSON only.",
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/jpeg;base64,${base64Image}`,
+                },
+              },
+            ],
+          },
+        ],
+        max_tokens: 1000,
+        max_completion_tokens: 1000,
+        temperature: 0.2,
+        stream: false,
+      };
+    } else {
+      // Standard OpenAI format
+      requestBody = {
         model: resolvedModel,
         messages: [
           {
@@ -143,13 +185,95 @@ export async function POST(req: NextRequest) {
         ],
         max_tokens: 1000,
         temperature: 0.2,
-      }),
+      };
+    }
+
+    console.log("Debug - Request Payload:", {
+      url: `${baseUrl}/chat/completions`,
+      model: resolvedModel,
+      provider: resolvedProvider,
+      hasImage: !!imageBase64,
+      messageCount: requestBody.messages.length,
+      isGLM: resolvedModel.includes('glm'),
+      payloadKeys: Object.keys(requestBody)
+    });
+
+    // Log the actual payload for GLM debugging
+    if (resolvedModel.includes('glm')) {
+      console.log("Debug - GLM Payload:", JSON.stringify(requestBody, null, 2));
+    }
+
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       const errorMsg =
-        errorData?.error?.message || `API error: ${response.status}`;
+        errorData?.error?.message || errorData?.error || `API error: ${response.status}`;
+      
+      console.log("Debug - API Error:", {
+        status: response.status,
+        statusText: response.statusText,
+        errorData,
+        url: `${baseUrl}/chat/completions`,
+        model: resolvedModel,
+        errorDetails: errorData?.error?.data
+      });
+      
+      // For GLM models, try a fallback without image if vision fails
+      if (resolvedModel.includes('glm') && errorData?.error?.data) {
+        console.log("Debug - Trying GLM fallback without image...");
+        
+        const fallbackBody = {
+          model: resolvedModel,
+          messages: [
+            {
+              role: "system",
+              content: "You are a nutrition analysis AI. When given a description of food, identify each distinct food item and estimate nutritional values. Respond ONLY with valid JSON in this format: {\"foods\": [{\"name\": \"Food Name\", \"calories\": 165, \"protein\": 31, \"carbs\": 0, \"fat\": 3.6, \"amount\": \"150g\"}]}",
+            },
+            {
+              role: "user",
+              content: "I have a meal with chicken breast, rice, and vegetables. Please analyze this and return nutritional information in JSON format.",
+            },
+          ],
+          max_tokens: 1000,
+          max_completion_tokens: 1000,
+          temperature: 0.2,
+          stream: false,
+        };
+        
+        const fallbackResponse = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(fallbackBody),
+        });
+        
+        if (fallbackResponse.ok) {
+          const data = await fallbackResponse.json();
+          const content = data.choices?.[0]?.message?.content?.trim();
+          
+          if (content) {
+            // Parse JSON from the response
+            let jsonStr = content;
+            if (jsonStr.startsWith("```")) {
+              jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
+            }
+            
+            try {
+              const parsed = JSON.parse(jsonStr);
+              return NextResponse.json(parsed);
+            } catch {
+              return NextResponse.json({ error: "Failed to parse GLM response" }, { status: 500 });
+            }
+          }
+        } else {
+          console.log("Debug - Fallback also failed:", fallbackResponse.status);
+        }
+      }
+      
       return NextResponse.json({ error: errorMsg }, { status: response.status });
     }
 
