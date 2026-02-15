@@ -256,18 +256,65 @@ export async function POST(req: NextRequest) {
           const content = data.choices?.[0]?.message?.content?.trim();
           
           if (content) {
-            // Parse JSON from the response
+            // Apply the same robust JSON parsing as the main response
             let jsonStr = content;
+            
+            // Remove markdown code blocks
             if (jsonStr.startsWith("```")) {
               jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
             }
             
+            // Clean up common JSON issues
+            jsonStr = jsonStr.trim();
+            
+            // Try to fix common JSON formatting issues
+            const fixedJsonStr = jsonStr
+              .replace(/,(\s*[}\]])/g, '$1') // Fix trailing commas
+              .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":'); // Fix missing quotes
+            
+            let parsed;
             try {
-              const parsed = JSON.parse(jsonStr);
-              return NextResponse.json(parsed);
-            } catch {
-              return NextResponse.json({ error: "Failed to parse GLM response" }, { status: 500 });
+              parsed = JSON.parse(fixedJsonStr);
+            } catch (firstError) {
+              try {
+                const jsonMatch = fixedJsonStr.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  const extractedJson = jsonMatch[0].replace(/,(\s*[}\]])/g, '$1');
+                  parsed = JSON.parse(extractedJson);
+                } else {
+                  throw new Error("No JSON found");
+                }
+              } catch (secondError) {
+                console.log("Debug - GLM fallback JSON parsing failed");
+                return NextResponse.json({ error: "Failed to parse GLM fallback response" }, { status: 500 });
+              }
             }
+            
+            // Validate structure
+            if (!parsed || typeof parsed !== 'object') {
+              return NextResponse.json({ error: "Invalid GLM response structure" }, { status: 500 });
+            }
+            
+            // Ensure foods array exists
+            if (!parsed.foods || !Array.isArray(parsed.foods)) {
+              if (parsed.food) {
+                parsed.foods = Array.isArray(parsed.food) ? parsed.food : [parsed.food];
+              } else {
+                return NextResponse.json({ error: "No foods in GLM response" }, { status: 500 });
+              }
+            }
+            
+            // Validate each food item
+            parsed.foods = parsed.foods.map((food: any) => ({
+              name: String(food.name || "Food item"),
+              calories: Number(food.calories) || 0,
+              protein: Number(food.protein) || 0,
+              carbs: Number(food.carbs) || 0,
+              fat: Number(food.fat) || 0,
+              amount: String(food.amount || "serving")
+            }));
+            
+            return NextResponse.json(parsed);
           }
         } else {
           console.log("Debug - Fallback also failed:", fallbackResponse.status);
@@ -287,13 +334,94 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Parse JSON from the response, handling potential markdown code blocks
+    // Parse JSON from the response, handling potential markdown code blocks and malformed JSON
     let jsonStr = content;
+    
+    // Remove markdown code blocks
     if (jsonStr.startsWith("```")) {
       jsonStr = jsonStr.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
     }
-
-    const parsed = JSON.parse(jsonStr);
+    
+    // Clean up common JSON issues
+    jsonStr = jsonStr.trim();
+    
+    // Try to fix common JSON formatting issues
+    const fixedJsonStr = jsonStr
+      // Fix trailing commas
+      .replace(/,(\s*[}\]])/g, '$1')
+      // Fix missing quotes around property names
+      .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":')
+      // Fix unescaped quotes in values (basic attempt)
+      .replace(/:\s*"([^"]*)"([^"]*")/g, (match: string, p1: string, p2: string) => {
+        const escaped = p1.replace(/"/g, '\\"');
+        return `: "${escaped}"${p2}`;
+      });
+    
+    let parsed;
+    try {
+      parsed = JSON.parse(fixedJsonStr);
+    } catch (firstError) {
+      // If first attempt fails, try more aggressive fixes
+      try {
+        // Try to extract JSON from the response if it's embedded in text
+        const jsonMatch = fixedJsonStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const extractedJson = jsonMatch[0]
+            .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+            .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":'); // Add quotes to property names
+          parsed = JSON.parse(extractedJson);
+        } else {
+          throw new Error("No JSON object found in response");
+        }
+      } catch (secondError) {
+        // If all parsing attempts fail, try to create a minimal valid response
+        console.log("Debug - JSON parsing failed:", {
+          originalError: firstError instanceof Error ? firstError.message : String(firstError),
+          secondError: secondError instanceof Error ? secondError.message : String(secondError),
+          attemptedJson: fixedJsonStr.substring(0, 200) + "..."
+        });
+        
+        // Return a fallback response indicating parsing failure
+        return NextResponse.json({
+          foods: [{
+            name: "Food item (parsing failed)",
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+            amount: "unknown"
+          }],
+          error: "Failed to parse AI response",
+          rawResponse: content.substring(0, 500) // Include partial response for debugging
+        });
+      }
+    }
+    
+    // Validate the parsed structure
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error("Invalid response structure");
+    }
+    
+    // Ensure foods array exists and has valid structure
+    if (!parsed.foods || !Array.isArray(parsed.foods)) {
+      // Try to find foods in different structure
+      if (parsed.food) {
+        parsed.foods = Array.isArray(parsed.food) ? parsed.food : [parsed.food];
+      } else {
+        throw new Error("No foods found in response");
+      }
+    }
+    
+    // Validate each food item
+    parsed.foods = parsed.foods.map((food: any) => ({
+      name: String(food.name || "Unknown food"),
+      calories: Number(food.calories) || 0,
+      protein: Number(food.protein) || 0,
+      carbs: Number(food.carbs) || 0,
+      fat: Number(food.fat) || 0,
+      amount: String(food.amount || "serving")
+    }));
+    
     return NextResponse.json(parsed);
   } catch (error: unknown) {
     console.error("Analysis error:", error);

@@ -61,6 +61,31 @@ npx sharp-cli -i public/icons/icon.svg -o public/icons/icon-192.png resize 192 1
 npx sharp-cli -i public/icons/icon.svg -o public/icons/icon-512.png resize 512 512
 ```
 
+
+# AIMLAPI
+
+If you are using AIMLAPI, make sure you are using an image supported model:
+https://docs.aimlapi.com/capabilities/image-to-text-vision
+
+example:
+```
+# AI Provider: "openai", "openrouter", or "custom"
+AI_PROVIDER=custom
+
+# API Key for the selected provider
+AI_API_KEY=your-aimlapi-key
+
+# Model to use (e.g. gpt-4o, google/gemini-2.0-flash-001, etc.)
+AI_MODEL=google/gemini-2.5-flash
+
+# Custom OpenAI-compatible API URL (only used when AI_PROVIDER=custom)
+# Default: https://api.openai.com/v1
+AI_CUSTOM_API_URL=https://api.aimlapi.com/v1
+
+```
+
+
+
 ## License
 
 MIT
