@@ -6,6 +6,8 @@ import {
   saveProfile,
   getAISettings,
   saveAISettings,
+  getStorageUsage,
+  clearOldLogs,
 } from "@/lib/storage";
 import { ActivityLevel, AIProvider, KeySource, Sex, UserProfile } from "@/lib/types";
 import { calculateTDEE, formatNumber } from "@/lib/utils";
@@ -20,6 +22,8 @@ import {
   Loader2,
   Server,
   Monitor,
+  Database,
+  Trash2,
 } from "lucide-react";
 
 interface ModelOption {
@@ -67,6 +71,7 @@ export default function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tdee, setTdee] = useState<number | null>(null);
+  const [storageUsage, setStorageUsage] = useState({ used: 0, total: 0, percentage: 0 });
 
   useEffect(() => {
     const profile = getProfile();
@@ -100,6 +105,9 @@ export default function SettingsPage() {
       .catch(() => {});
 
     setMounted(true);
+    
+    // Update storage usage
+    setStorageUsage(getStorageUsage());
   }, []);
 
   useEffect(() => {
@@ -169,6 +177,16 @@ export default function SettingsPage() {
     saveAISettings(aiSettings);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+    
+    // Update storage usage after saving
+    setStorageUsage(getStorageUsage());
+  };
+
+  const handleClearLogs = () => {
+    if (confirm("This will remove all food logs except the last 30 days. Images will be truncated to save space. Continue?")) {
+      clearOldLogs(30);
+      setStorageUsage(getStorageUsage());
+    }
   };
 
   const handleUseTDEE = () => {
@@ -397,6 +415,49 @@ export default function SettingsPage() {
             </p>
           )}
         </div>
+      </section>
+
+      {/* Storage Management Section */}
+      <section className="mb-8">
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900 mb-3">
+          <Database className="h-5 w-5 text-green-600" />
+          Storage Management
+        </h2>
+        <p className="text-sm text-gray-500 mb-3">
+          Manage local storage usage and clear old food logs.
+        </p>
+        
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">Storage Usage</span>
+            <span className="text-sm text-gray-600">
+              {formatNumber(storageUsage.used / 1024)} KB / {formatNumber(storageUsage.total / 1024)} KB
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className={`h-2 rounded-full transition-colors ${
+                storageUsage.percentage > 80 ? 'bg-red-500' : 
+                storageUsage.percentage > 60 ? 'bg-yellow-500' : 
+                'bg-green-500'
+              }`}
+              style={{ width: `${Math.min(storageUsage.percentage, 100)}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            {storageUsage.percentage > 80 ? '⚠️ Storage nearly full - consider clearing old logs' : 
+             storageUsage.percentage > 60 ? 'Storage getting full' : 
+             'Storage usage normal'}
+          </p>
+        </div>
+        
+        <button
+          onClick={handleClearLogs}
+          className="flex items-center gap-2 rounded-xl border-2 border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+        >
+          <Trash2 className="h-4 w-4" />
+          Clear Old Logs
+        </button>
       </section>
 
       {/* Profile Section */}
